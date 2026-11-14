@@ -20,7 +20,8 @@ import {
   X
 } from 'lucide-react';
 
-type DeviceStatus = 'Awaiting inspection' | 'Inspected';
+type Status = 'Awaiting inspection' | 'Inspected';
+type Section = 'Overview' | 'Devices' | 'Inspections' | 'Passports';
 
 type Device = {
   id: string;
@@ -31,7 +32,7 @@ type Device = {
   color: string;
   imei: string;
   created: string;
-  status: DeviceStatus;
+  status: Status;
   grade?: string;
   technician?: string;
   notes?: string;
@@ -80,25 +81,104 @@ const seed: Device[] = [
 ];
 
 const money = (amount: number) =>
-  `₦${amount.toLocaleString('en-NG')}`;
+  '₦' + amount.toLocaleString('en-NG');
 
-function App() {
+function Stat({
+  icon,
+  label,
+  value,
+  trend
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  trend: string;
+}) {
+  return (
+    <div className="panel stat-card">
+      <div className="stat-top">
+        <div className="stat-icon">{icon}</div>
+      </div>
+      <div className="stat-value">{value}</div>
+      <b>{label}</b>
+      <small>{trend}</small>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: Status }) {
+  return (
+    <span className={status === 'Inspected' ? 'status success' : 'status warning'}>
+      <i />
+      {status}
+    </span>
+  );
+}
+
+function PageTitle({
+  eyebrow,
+  title,
+  description,
+  action
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="page-title">
+      <div>
+        <div className="eyebrow">{eyebrow}</div>
+        <h1>{title}</h1>
+        <p className="subhead">{description}</p>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function Action({
+  icon,
+  title,
+  detail,
+  onClick
+}: {
+  icon: React.ReactNode;
+  title: string;
+  detail: string;
+  onClick: () => void;
+}) {
+  return (
+    <button className="action-tile" onClick={onClick}>
+      <div className="action-icon purple">{icon}</div>
+      <div>
+        <b>{title}</b>
+        <small>{detail}</small>
+      </div>
+      <ChevronRight />
+    </button>
+  );
+}
+
+export default function App() {
   const [devices, setDevices] = useState<Device[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? JSON.parse(saved) as Device[] : seed;
+      if (!saved) return seed;
+
+      const parsed: unknown = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed as Device[] : seed;
     } catch {
       return seed;
     }
   });
 
-  const [active, setActive] = useState<
-    'Overview' | 'Devices' | 'Inspections' | 'Passports'
-  >(() => {
-    return new URLSearchParams(window.location.search).has('passport')
+  const [active, setActive] = useState<Section>(() =>
+    new URLSearchParams(window.location.search).has('passport')
       ? 'Passports'
-      : 'Overview';
-  });
+      : 'Overview'
+  );
 
   const [selected, setSelected] = useState(
     () =>
@@ -138,12 +218,10 @@ function App() {
   }, [devices]);
 
   useEffect(() => {
-    const passportId = new URLSearchParams(
-      window.location.search
-    ).get('passport');
+    const id = new URLSearchParams(window.location.search).get('passport');
 
-    if (passportId) {
-      setSelected(passportId);
+    if (id) {
+      setSelected(id);
       setActive('Passports');
     }
   }, []);
@@ -156,31 +234,42 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const filtered = useMemo(() => {
-    return devices.filter(device =>
-      `${device.make} ${device.model} ${device.owner} ${device.id}`
-        .toLowerCase()
-        .includes(query.toLowerCase())
-    );
-  }, [devices, query]);
+  const filtered = useMemo(
+    () =>
+      devices.filter(device =>
+        (
+          device.make +
+          ' ' +
+          device.model +
+          ' ' +
+          device.owner +
+          ' ' +
+          device.id
+        )
+          .toLowerCase()
+          .includes(query.toLowerCase())
+      ),
+    [devices, query]
+  );
 
-  const inspected = devices.filter(
+  const inspectedCount = devices.filter(
     device => device.status === 'Inspected'
   ).length;
 
-  const pending = devices.filter(
-    device => device.status === 'Awaiting inspection'
-  ).length;
+  const pendingCount = devices.length - inspectedCount;
 
-  const current =
-    devices.find(device => device.id === selected) || devices[0];
+  const current = devices.find(
+    device => device.id === selected
+  ) || devices[0];
 
   function addDevice(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const device: Device = {
       ...form,
-      id: `DP-${Math.random().toString(16).slice(2, 8).toUpperCase()}`,
+      id:
+        'DP-' +
+        Math.random().toString(16).slice(2, 8).toUpperCase(),
       created: new Date().toLocaleDateString('en-GB', {
         day: '2-digit',
         month: 'short',
@@ -205,19 +294,32 @@ function App() {
     setToast('Device registered. Passport ID created.');
   }
 
+  function startInspection(deviceId?: string) {
+    const id =
+      deviceId ||
+      devices.find(
+        device => device.status === 'Awaiting inspection'
+      )?.id ||
+      devices[0]?.id ||
+      '';
+
+    setInspection(previous => ({
+      ...previous,
+      deviceId: id
+    }));
+
+    setModal('inspection');
+  }
+
   function saveInspection(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const exists = devices.some(
-      device => device.id === inspection.deviceId
-    );
+    const battery = Number(inspection.battery);
 
-    if (!exists) {
+    if (!devices.some(device => device.id === inspection.deviceId)) {
       setToast('Please select a valid device.');
       return;
     }
-
-    const battery = Number(inspection.battery);
 
     if (!Number.isFinite(battery) || battery < 0 || battery > 100) {
       setToast('Battery health must be between 0 and 100.');
@@ -225,7 +327,10 @@ function App() {
     }
 
     const reportId =
-      `RPT-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+      'RPT-' +
+      new Date().getFullYear() +
+      '-' +
+      String(Date.now()).slice(-6);
 
     setDevices(previous =>
       previous.map(device => {
@@ -236,7 +341,8 @@ function App() {
           status: 'Inspected',
           grade: battery >= 90 ? 'A' : battery >= 80 ? 'B+' : 'C',
           technician: 'Demo technician · identity not verified',
-          notes: inspection.notes ||
+          notes:
+            inspection.notes ||
             'Inspection recorded using the demo checklist.',
           batteryHealth: battery,
           screen: inspection.screen,
@@ -257,23 +363,6 @@ function App() {
     );
   }
 
-  function startInspection(deviceId?: string) {
-    const nextId =
-      deviceId ||
-      devices.find(
-        device => device.status === 'Awaiting inspection'
-      )?.id ||
-      devices[0]?.id ||
-      '';
-
-    setInspection(previous => ({
-      ...previous,
-      deviceId: nextId
-    }));
-
-    setModal('inspection');
-  }
-
   function exportReport(device: Device) {
     const blob = new Blob(
       [JSON.stringify(device, null, 2)],
@@ -284,18 +373,24 @@ function App() {
     const anchor = document.createElement('a');
 
     anchor.href = url;
-    anchor.download = `${device.id}-passport.json`;
+    anchor.download = device.id + '-passport.json';
+
+    document.body.appendChild(anchor);
     anchor.click();
+    anchor.remove();
 
     URL.revokeObjectURL(url);
   }
 
-  const navigation = [
-    ['Overview', LayoutDashboard],
-    ['Devices', Smartphone],
-    ['Inspections', ClipboardCheck],
-    ['Passports', QrCode]
-  ] as const;
+  const navigation: {
+    name: Section;
+    icon: React.ReactNode;
+  }[] = [
+    { name: 'Overview', icon: <LayoutDashboard size={18} /> },
+    { name: 'Devices', icon: <Smartphone size={18} /> },
+    { name: 'Inspections', icon: <ClipboardCheck size={18} /> },
+    { name: 'Passports', icon: <QrCode size={18} /> }
+  ];
 
   return (
     <div className="app-shell">
@@ -322,16 +417,21 @@ function App() {
         <div className="nav-label">WORKSPACE</div>
 
         <nav>
-          {navigation.map(([name, Icon]) => (
+          {navigation.map(item => (
             <button
-              key={name}
-              className={active === name ? 'nav-item active' : 'nav-item'}
-              onClick={() => setActive(name)}
+              key={item.name}
+              className={
+                active === item.name
+                  ? 'nav-item active'
+                  : 'nav-item'
+              }
+              onClick={() => setActive(item.name)}
             >
-              <Icon size={18} />
-              {name}
-              {name === 'Inspections' && pending > 0 && (
-                <span className="nav-count">{pending}</span>
+              {item.icon}
+              {item.name}
+
+              {item.name === 'Inspections' && pendingCount > 0 && (
+                <span className="nav-count">{pendingCount}</span>
               )}
             </button>
           ))}
@@ -374,6 +474,7 @@ function App() {
               onClick={() =>
                 setToast('Notifications are not connected yet.')
               }
+              aria-label="Notifications"
             >
               <Activity size={18} />
             </button>
@@ -392,8 +493,8 @@ function App() {
                     Good day, Operator <span>✦</span>
                   </h1>
                   <p className="subhead">
-                    Track device registrations, inspection records
-                    and shareable passports.
+                    Track device registrations, inspection records and
+                    shareable passports.
                   </p>
                 </div>
 
@@ -412,18 +513,21 @@ function App() {
                   value={String(devices.length).padStart(2, '0')}
                   trend="Saved in this browser"
                 />
+
                 <Stat
                   icon={<ShieldCheck />}
                   label="Recorded inspections"
-                  value={String(inspected).padStart(2, '0')}
+                  value={String(inspectedCount).padStart(2, '0')}
                   trend="Includes demo records"
                 />
+
                 <Stat
                   icon={<Clock3 />}
                   label="Awaiting inspection"
-                  value={String(pending).padStart(2, '0')}
+                  value={String(pendingCount).padStart(2, '0')}
                   trend="Pending checklist"
                 />
+
                 <Stat
                   icon={<Wallet />}
                   label="Inspection fees"
@@ -439,6 +543,7 @@ function App() {
                       <h2>Recent devices</h2>
                       <p>Latest records in this workspace.</p>
                     </div>
+
                     <button
                       className="text-btn"
                       onClick={() => setActive('Devices')}
@@ -458,6 +563,7 @@ function App() {
                           <th />
                         </tr>
                       </thead>
+
                       <tbody>
                         {devices.slice(0, 5).map(device => (
                           <tr key={device.id}>
@@ -467,16 +573,23 @@ function App() {
                                   <Smartphone size={19} />
                                 </div>
                                 <div>
-                                  <b>{device.make} {device.model}</b>
+                                  <b>
+                                    {device.make} {device.model}
+                                  </b>
                                   <small>
                                     {device.id} · {device.storage}
                                   </small>
                                 </div>
                               </div>
                             </td>
+
                             <td>{device.owner}</td>
                             <td>{device.created}</td>
-                            <td><Status status={device.status} /></td>
+
+                            <td>
+                              <StatusBadge status={device.status} />
+                            </td>
+
                             <td>
                               <button
                                 className="row-more"
@@ -484,8 +597,9 @@ function App() {
                                   setSelected(device.id);
                                   setActive('Passports');
                                 }}
+                                aria-label="Open passport"
                               >
-                                ↗
+                                <ArrowUpRight size={16} />
                               </button>
                             </td>
                           </tr>
@@ -509,12 +623,14 @@ function App() {
                     detail="Create a passport record"
                     onClick={() => setModal('device')}
                   />
+
                   <Action
                     icon={<ClipboardCheck />}
                     title="Record an inspection"
                     detail="Enter technician checklist results"
                     onClick={() => startInspection()}
                   />
+
                   <Action
                     icon={<QrCode />}
                     title="View passports"
@@ -539,6 +655,7 @@ function App() {
                 <div className="pollar-symbol">
                   <Wallet size={24} />
                 </div>
+
                 <div className="pollar-copy">
                   <span className="eyebrow">POLLAR SDK · TESTNET</span>
                   <h2>Wallet connection for inspection payments</h2>
@@ -548,6 +665,7 @@ function App() {
                     does not claim to have processed any payments.
                   </p>
                 </div>
+
                 <div className="pollar-right">
                   <span className="integration-status">
                     <i /> Integration pending
@@ -583,6 +701,7 @@ function App() {
                       placeholder="Search device, owner or passport ID..."
                     />
                   </div>
+
                   <span className="muted">
                     {filtered.length} records
                   </span>
@@ -600,70 +719,15 @@ function App() {
                         <th />
                       </tr>
                     </thead>
+
                     <tbody>
                       {filtered.map(device => (
                         <tr key={device.id}>
                           <td>
-                            <b>{device.make} {device.model}</b>
+                            <b>
+                              {device.make} {device.model}
+                            </b>
                             <small>
                               {device.storage} · {device.color}
                             </small>
-                          </td>
-                          <td>{device.owner}</td>
-                          <td className="mono">{device.id}</td>
-                          <td>{device.created}</td>
-                          <td><Status status={device.status} /></td>
-                          <td>
-                            <button
-                              className="small-outline"
-                              onClick={() => {
-                                setSelected(device.id);
-                                setActive('Passports');
-                              }}
-                            >
-                              Open passport
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {filtered.length === 0 && (
-                    <div className="empty">
-                      No devices match that search.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-
-          {active === 'Inspections' && (
-            <>
-              <PageTitle
-                eyebrow="QUALITY & CONDITION"
-                title="Inspections"
-                description="Structured condition checks recorded against each device."
-                action={
-                  <button
-                    className="primary"
-                    onClick={() => startInspection()}
-                  >
-                    <Plus size={17} /> New inspection
-                  </button>
-                }
-              />
-
-              <div className="notice">
-                <ShieldCheck size={18} />
-                <span>
-                  <b>Important:</b> Reports in this prototype are
-                  user-entered demo records. Technician identity,
-                  physical evidence and report signing are not
-                  independently verified.
-                </span>
-              </div>
-
-              <div className="inspection-grid">
-                {devices.map(device => (
-                  <div className="panel ins
+  

@@ -1,10 +1,23 @@
+
 import React, { useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { WalletButton } from '@pollar/react';
 import {
-  Activity, ArrowUpRight, BadgeCheck, Check, ChevronRight, ClipboardCheck,
-  Clock3, Download, Fingerprint, LayoutDashboard, Plus, QrCode, Search,
-  Shield, ShieldCheck, Smartphone, Wallet, X
+  Activity,
+  ArrowUpRight,
+  Check,
+  ChevronRight,
+  ClipboardCheck,
+  Clock3,
+  Download,
+  Fingerprint,
+  LayoutDashboard,
+  Plus,
+  QrCode,
+  Search,
+  ShieldCheck,
+  Smartphone,
+  Wallet,
+  X
 } from 'lucide-react';
 
 type DeviceStatus = 'Awaiting inspection' | 'Inspected';
@@ -20,6 +33,7 @@ type Device = {
   created: string;
   status: DeviceStatus;
   grade?: string;
+  technician?: string;
   notes?: string;
   batteryHealth?: number;
   screen?: string;
@@ -43,6 +57,7 @@ const seed: Device[] = [
     created: '12 Nov 2026',
     status: 'Inspected',
     grade: 'B+',
+    technician: 'Demo technician',
     notes: 'Minor frame wear. Display, cameras, speakers and charging port passed the recorded checks.',
     batteryHealth: 87,
     screen: 'Pass · light micro-scratches',
@@ -64,13 +79,10 @@ const seed: Device[] = [
   }
 ];
 
-const money = (value: number) => `₦${value.toLocaleString('en-NG')}`;
+const money = (amount: number) =>
+  `₦${amount.toLocaleString('en-NG')}`;
 
-const pollarConfigured = Boolean(
-  import.meta.env.VITE_POLLAR_PUBLISHABLE_KEY
-);
-
-export default function App() {
+function App() {
   const [devices, setDevices] = useState<Device[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -82,15 +94,16 @@ export default function App() {
 
   const [active, setActive] = useState<
     'Overview' | 'Devices' | 'Inspections' | 'Passports'
-  >(
-    () => new URLSearchParams(window.location.search).has('passport')
+  >(() => {
+    return new URLSearchParams(window.location.search).has('passport')
       ? 'Passports'
-      : 'Overview'
-  );
+      : 'Overview';
+  });
 
   const [selected, setSelected] = useState(
-    () => new URLSearchParams(window.location.search).get('passport')
-      || 'DP-8F2A91'
+    () =>
+      new URLSearchParams(window.location.search).get('passport') ||
+      'DP-8F2A91'
   );
 
   const [query, setQuery] = useState('');
@@ -107,7 +120,7 @@ export default function App() {
   });
 
   const [inspection, setInspection] = useState({
-    deviceId: '',
+    deviceId: 'DP-2C7D14',
     battery: '88',
     screen: 'Pass',
     cameras: 'Pass',
@@ -117,12 +130,17 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(devices));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(devices));
+    } catch {
+      setToast('Unable to save records in this browser.');
+    }
   }, [devices]);
 
   useEffect(() => {
-    const passportId = new URLSearchParams(window.location.search)
-      .get('passport');
+    const passportId = new URLSearchParams(
+      window.location.search
+    ).get('passport');
 
     if (passportId) {
       setSelected(passportId);
@@ -138,11 +156,13 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const filtered = useMemo(() => devices.filter(device =>
-    `${device.make} ${device.model} ${device.owner} ${device.id}`
-      .toLowerCase()
-      .includes(query.toLowerCase())
-  ), [devices, query]);
+  const filtered = useMemo(() => {
+    return devices.filter(device =>
+      `${device.make} ${device.model} ${device.owner} ${device.id}`
+        .toLowerCase()
+        .includes(query.toLowerCase())
+    );
+  }, [devices, query]);
 
   const inspected = devices.filter(
     device => device.status === 'Inspected'
@@ -152,16 +172,15 @@ export default function App() {
     device => device.status === 'Awaiting inspection'
   ).length;
 
-  const current = devices.find(
-    device => device.id === selected
-  ) || devices[0];
+  const current =
+    devices.find(device => device.id === selected) || devices[0];
 
   function addDevice(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const device: Device = {
       ...form,
-      id: `DP-${crypto.randomUUID().slice(0, 6).toUpperCase()}`,
+      id: `DP-${Math.random().toString(16).slice(2, 8).toUpperCase()}`,
       created: new Date().toLocaleDateString('en-GB', {
         day: '2-digit',
         month: 'short',
@@ -183,62 +202,69 @@ export default function App() {
       imei: ''
     });
 
-    setToast(
-      'Device registered. Passport ID created in this browser.'
-    );
+    setToast('Device registered. Passport ID created.');
   }
 
   function saveInspection(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!devices.some(
+    const exists = devices.some(
       device => device.id === inspection.deviceId
-    )) {
-      setToast('Please choose a valid device.');
+    );
+
+    if (!exists) {
+      setToast('Please select a valid device.');
+      return;
+    }
+
+    const battery = Number(inspection.battery);
+
+    if (!Number.isFinite(battery) || battery < 0 || battery > 100) {
+      setToast('Battery health must be between 0 and 100.');
       return;
     }
 
     const reportId =
       `RPT-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
 
-    setDevices(previous => previous.map(device => {
-      if (device.id !== inspection.deviceId) return device;
+    setDevices(previous =>
+      previous.map(device => {
+        if (device.id !== inspection.deviceId) return device;
 
-      return {
-        ...device,
-        status: 'Inspected',
-        grade: Number(inspection.battery) >= 90
-          ? 'A'
-          : Number(inspection.battery) >= 80
-            ? 'B+'
-            : 'C',
-        notes: inspection.notes
-          || 'Recorded using the prototype checklist.',
-        batteryHealth: Number(inspection.battery),
-        screen: inspection.screen,
-        cameras: inspection.cameras,
-        ports: inspection.ports,
-        network: inspection.network,
-        reportId
-      };
-    }));
+        return {
+          ...device,
+          status: 'Inspected',
+          grade: battery >= 90 ? 'A' : battery >= 80 ? 'B+' : 'C',
+          technician: 'Demo technician · identity not verified',
+          notes: inspection.notes ||
+            'Inspection recorded using the demo checklist.',
+          batteryHealth: battery,
+          screen: inspection.screen,
+          cameras: inspection.cameras,
+          ports: inspection.ports,
+          network: inspection.network,
+          reportId
+        };
+      })
+    );
 
     setSelected(inspection.deviceId);
-    setActive('Passports');
     setModal(null);
+    setActive('Passports');
 
     setToast(
-      'Demo inspection saved locally. Technician identity is not verified.'
+      'Inspection saved locally. Technician identity is not verified.'
     );
   }
 
   function startInspection(deviceId?: string) {
-    const nextId = deviceId
-      || devices.find(
+    const nextId =
+      deviceId ||
+      devices.find(
         device => device.status === 'Awaiting inspection'
-      )?.id
-      || devices[0]?.id
-      || '';
+      )?.id ||
+      devices[0]?.id ||
+      '';
 
     setInspection(previous => ({
       ...previous,
@@ -278,7 +304,6 @@ export default function App() {
           <div className="brand-mark">
             <Fingerprint size={23} />
           </div>
-
           <div>
             <b>devicepassport</b>
             <small>NG · TRUSTED DEVICE RECORDS</small>
@@ -287,12 +312,10 @@ export default function App() {
 
         <div className="workspace">
           <span className="avatar">DP</span>
-
           <div>
             <b>Demo workspace</b>
             <small>Local prototype</small>
           </div>
-
           <ChevronRight size={15} />
         </div>
 
@@ -302,16 +325,11 @@ export default function App() {
           {navigation.map(([name, Icon]) => (
             <button
               key={name}
-              className={
-                active === name
-                  ? 'nav-item active'
-                  : 'nav-item'
-              }
+              className={active === name ? 'nav-item active' : 'nav-item'}
               onClick={() => setActive(name)}
             >
               <Icon size={18} />
               {name}
-
               {name === 'Inspections' && pending > 0 && (
                 <span className="nav-count">{pending}</span>
               )}
@@ -330,7 +348,6 @@ export default function App() {
 
           <div className="profile">
             <div className="avatar user">DP</div>
-
             <div>
               <b>Demo Operator</b>
               <small>Prototype account</small>
@@ -350,18 +367,13 @@ export default function App() {
               <span /> TESTNET DEMO
             </span>
 
-            {pollarConfigured
-              ? <WalletButton />
-              : <span className="muted">
-                  Pollar key not configured
-                </span>
-            }
+            <span className="muted">Pollar integration pending</span>
 
             <button
               className="icon-btn"
-              onClick={() => setToast(
-                'Notifications are not connected in this prototype.'
-              )}
+              onClick={() =>
+                setToast('Notifications are not connected yet.')
+              }
             >
               <Activity size={18} />
             </button>
@@ -376,11 +388,9 @@ export default function App() {
                   <div className="eyebrow">
                     DEVICE VERIFICATION WORKSPACE
                   </div>
-
                   <h1>
                     Good day, Operator <span>✦</span>
                   </h1>
-
                   <p className="subhead">
                     Track device registrations, inspection records
                     and shareable passports.
@@ -402,21 +412,18 @@ export default function App() {
                   value={String(devices.length).padStart(2, '0')}
                   trend="Saved in this browser"
                 />
-
                 <Stat
                   icon={<ShieldCheck />}
                   label="Recorded inspections"
                   value={String(inspected).padStart(2, '0')}
                   trend="Includes demo records"
                 />
-
                 <Stat
                   icon={<Clock3 />}
                   label="Awaiting inspection"
                   value={String(pending).padStart(2, '0')}
                   trend="Pending checklist"
                 />
-
                 <Stat
                   icon={<Wallet />}
                   label="Inspection fees"
@@ -432,7 +439,6 @@ export default function App() {
                       <h2>Recent devices</h2>
                       <p>Latest records in this workspace.</p>
                     </div>
-
                     <button
                       className="text-btn"
                       onClick={() => setActive('Devices')}
@@ -452,7 +458,6 @@ export default function App() {
                           <th />
                         </tr>
                       </thead>
-
                       <tbody>
                         {devices.slice(0, 5).map(device => (
                           <tr key={device.id}>
@@ -461,26 +466,17 @@ export default function App() {
                                 <div className="device-thumb">
                                   <Smartphone size={19} />
                                 </div>
-
                                 <div>
-                                  <b>
-                                    {device.make} {device.model}
-                                  </b>
-
+                                  <b>{device.make} {device.model}</b>
                                   <small>
                                     {device.id} · {device.storage}
                                   </small>
                                 </div>
                               </div>
                             </td>
-
                             <td>{device.owner}</td>
                             <td>{device.created}</td>
-
-                            <td>
-                              <Status status={device.status} />
-                            </td>
-
+                            <td><Status status={device.status} /></td>
                             <td>
                               <button
                                 className="row-more"
@@ -513,14 +509,12 @@ export default function App() {
                     detail="Create a passport record"
                     onClick={() => setModal('device')}
                   />
-
                   <Action
                     icon={<ClipboardCheck />}
                     title="Record an inspection"
                     detail="Enter technician checklist results"
                     onClick={() => startInspection()}
                   />
-
                   <Action
                     icon={<QrCode />}
                     title="View passports"
@@ -530,7 +524,6 @@ export default function App() {
 
                   <div className="integrity-note">
                     <ShieldCheck size={17} />
-
                     <span>
                       <b>Prototype integrity notice</b>
                       <small>
@@ -546,31 +539,18 @@ export default function App() {
                 <div className="pollar-symbol">
                   <Wallet size={24} />
                 </div>
-
                 <div className="pollar-copy">
-                  <span className="eyebrow">
-                    POLLAR SDK · TESTNET
-                  </span>
-
-                  <h2>
-                    Wallet connection for inspection payments
-                  </h2>
-
+                  <span className="eyebrow">POLLAR SDK · TESTNET</span>
+                  <h2>Wallet connection for inspection payments</h2>
                   <p>
-                    {pollarConfigured
-                      ? 'Pollar provider is configured. Connect the testnet wallet above. Live payment collection and payment-to-report linking are not implemented yet.'
-                      : 'Add VITE_POLLAR_PUBLISHABLE_KEY to Vercel Environment Variables to enable the Pollar wallet connection. Never expose a secret key in frontend code.'
-                    }
+                    Pollar payment collection and payment-to-report
+                    linking are not yet implemented. This prototype
+                    does not claim to have processed any payments.
                   </p>
                 </div>
-
                 <div className="pollar-right">
                   <span className="integration-status">
-                    <i />
-                    {pollarConfigured
-                      ? 'Wallet component enabled'
-                      : 'Configuration required'
-                    }
+                    <i /> Integration pending
                   </span>
                 </div>
               </section>
@@ -597,14 +577,12 @@ export default function App() {
                 <div className="list-toolbar">
                   <div className="searchbox">
                     <Search size={17} />
-
                     <input
                       value={query}
                       onChange={event => setQuery(event.target.value)}
                       placeholder="Search device, owner or passport ID..."
                     />
                   </div>
-
                   <span className="muted">
                     {filtered.length} records
                   </span>
@@ -622,28 +600,19 @@ export default function App() {
                         <th />
                       </tr>
                     </thead>
-
                     <tbody>
                       {filtered.map(device => (
                         <tr key={device.id}>
                           <td>
-                            <b>
-                              {device.make} {device.model}
-                            </b>
-
+                            <b>{device.make} {device.model}</b>
                             <small>
                               {device.storage} · {device.color}
                             </small>
                           </td>
-
                           <td>{device.owner}</td>
                           <td className="mono">{device.id}</td>
                           <td>{device.created}</td>
-
-                          <td>
-                            <Status status={device.status} />
-                          </td>
-
+                          <td><Status status={device.status} /></td>
                           <td>
                             <button
                               className="small-outline"
@@ -659,7 +628,6 @@ export default function App() {
                       ))}
                     </tbody>
                   </table>
-
                   {filtered.length === 0 && (
                     <div className="empty">
                       No devices match that search.
@@ -681,4 +649,21 @@ export default function App() {
                     className="primary"
                     onClick={() => startInspection()}
                   >
-                    <Pl
+                    <Plus size={17} /> New inspection
+                  </button>
+                }
+              />
+
+              <div className="notice">
+                <ShieldCheck size={18} />
+                <span>
+                  <b>Important:</b> Reports in this prototype are
+                  user-entered demo records. Technician identity,
+                  physical evidence and report signing are not
+                  independently verified.
+                </span>
+              </div>
+
+              <div className="inspection-grid">
+                {devices.map(device => (
+                  <div className="panel ins
